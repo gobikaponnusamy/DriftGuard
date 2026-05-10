@@ -1,0 +1,53 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: driftguard-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/driftguard}
+    username: ${SPRING_DATASOURCE_USERNAME:driftguard}
+    password: ${SPRING_DATASOURCE_PASSWORD:driftguard}
+    driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+driftguard:
+  api-base-url: ${DRIFTGUARD_API_BASE_URL:http://localhost:8080}
+  demo-staging-url: ${DRIFTGUARD_DEMO_STAGING_URL:http://localhost:8082}
+  jwt:
+    secret: ${DRIFTGUARD_JWT_SECRET:dev-only-change-this-secret-before-production}
+    issuer: ${DRIFTGUARD_JWT_ISSUER:driftguard}
+    ttl-seconds: ${DRIFTGUARD_JWT_TTL_SECONDS:28800}
+  seed:
+    enabled: ${DRIFTGUARD_SEED_ENABLED:true}
+  cors:
+    allowed-origins: ${DRIFTGUARD_CORS_ALLOWED_ORIGINS:http://localhost:3000}

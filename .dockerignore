@@ -1,0 +1,12 @@
+.git
+.idea
+*.iml
+.env
+.env.local
+node_modules
+dist
+build
+target
+.gradle
+coverage
+*.log

@@ -1,0 +1,117 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: driftguard-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-driftguard}
+      POSTGRES_USER: ${POSTGRES_USER:-driftguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-driftguard}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: driftguard-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mock-checkout-prod:
+    build:
+      context: ./infra/mock-checkout
+    container_name: driftguard-mock-checkout-prod
+    environment:
+      MOCK_MODE: prod
+      PORT: 8081
+    ports:
+      - "${MOCK_PROD_PORT:-8081}:8081"
+
+  mock-checkout-staging:
+    build:
+      context: ./infra/mock-checkout
+    container_name: driftguard-mock-checkout-staging
+    environment:
+      MOCK_MODE: staging
+      PORT: 8081
+    ports:
+      - "${MOCK_STAGING_PORT:-8082}:8081"
+
+  traffic-proxy:
+    build:
+      context: ./infra/traffic-proxy
+    container_name: driftguard-traffic-proxy
+    environment:
+      PORT: 8083
+      TARGET_URL: ${TRAFFIC_PROXY_TARGET_URL:-http://mock-checkout-prod:8081}
+      DRIFTGUARD_URL: ${TRAFFIC_PROXY_DRIFTGUARD_URL:-http://backend:8080}
+      DRIFTGUARD_API_KEY: ${TRAFFIC_PROXY_API_KEY:-dg_demo_checkout_api_key}
+      DRIFTGUARD_SERVICE_NAME: ${TRAFFIC_PROXY_SERVICE_NAME:-checkout-api}
+      DRIFTGUARD_SERVICE_ID: ${TRAFFIC_PROXY_SERVICE_ID:-}
+      TRAFFIC_PROXY_SAMPLE_RATE: ${TRAFFIC_PROXY_SAMPLE_RATE:-1}
+      TRAFFIC_PROXY_MAX_BODY_BYTES: ${TRAFFIC_PROXY_MAX_BODY_BYTES:-262144}
+    ports:
+      - "${TRAFFIC_PROXY_PORT:-8083}:8083"
+    depends_on:
+      backend:
+        condition: service_started
+      mock-checkout-prod:
+        condition: service_started
+
+  backend:
+    build:
+      context: ./backend
+    container_name: driftguard-backend
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-driftguard}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-driftguard}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-driftguard}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      DRIFTGUARD_CORS_ALLOWED_ORIGINS: ${DRIFTGUARD_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      DRIFTGUARD_API_BASE_URL: ${DRIFTGUARD_API_BASE_URL:-http://localhost:8080}
+      DRIFTGUARD_SEED_ENABLED: ${DRIFTGUARD_SEED_ENABLED:-true}
+      DRIFTGUARD_DEMO_STAGING_URL: ${DRIFTGUARD_DEMO_STAGING_URL:-http://mock-checkout-staging:8081}
+      DRIFTGUARD_JWT_SECRET: ${DRIFTGUARD_JWT_SECRET:-dev-only-change-this-secret-before-production}
+      DRIFTGUARD_JWT_ISSUER: ${DRIFTGUARD_JWT_ISSUER:-driftguard}
+      DRIFTGUARD_JWT_TTL_SECONDS: ${DRIFTGUARD_JWT_TTL_SECONDS:-28800}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mock-checkout-prod:
+        condition: service_started
+      mock-checkout-staging:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8080}
+    container_name: driftguard-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+  redis-data:

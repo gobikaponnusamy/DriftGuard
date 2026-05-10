@@ -1,0 +1,42 @@
+### Java / Gradle ###
+.gradle/
+build/
+out/
+target/
+!gradle/wrapper/gradle-wrapper.jar
+
+### Node / Vite ###
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+### Environment ###
+.env
+.env.local
+.env.*.local
+!.env.example
+
+### IDE ###
+.idea/
+*.iws
+*.iml
+*.ipr
+.classpath
+.project
+.settings/
+.vscode/
+
+### Logs ###
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+### OS ###
+.DS_Store
+Thumbs.db

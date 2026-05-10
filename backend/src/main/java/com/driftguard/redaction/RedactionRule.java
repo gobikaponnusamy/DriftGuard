@@ -1,0 +1,71 @@
+package com.driftguard.redaction;
+
+import com.driftguard.service.RegisteredService;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UuidGenerator;
+
+@Entity
+@Table(name = "redaction_rules")
+public class RedactionRule {
+
+    @Id
+    @GeneratedValue
+    @UuidGenerator
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "service_id", nullable = false)
+    private RegisteredService service;
+
+    @Column(name = "field_path", nullable = false, columnDefinition = "text")
+    private String fieldPath;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rule_type", nullable = false, length = 24)
+    private RedactionRuleType ruleType;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    protected RedactionRule() {
+    }
+
+    public RedactionRule(RegisteredService service, String fieldPath, RedactionRuleType ruleType) {
+        this.service = service;
+        this.fieldPath = fieldPath;
+        this.ruleType = ruleType;
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public RegisteredService getService() {
+        return service;
+    }
+
+    public String getFieldPath() {
+        return fieldPath;
+    }
+
+    public RedactionRuleType getRuleType() {
+        return ruleType;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+}
