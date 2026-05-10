@@ -2,7 +2,7 @@
 
 DriftGuard is a full-stack production behavior diff tool. It saves safe, sampled examples of how an API behaves today, replays the same requests against staging, and shows exactly what changed before the new version reaches customers.
 
-The project is built as an interview-ready production-safety platform, not just a CRUD dashboard. It includes traffic capture, replay, JSON diffing, WebSocket progress, release readiness, deploy-gate simulation, endpoint risk scoring, PII redaction, and a Monaco side-by-side diff viewer.
+The platform includes traffic capture, replay orchestration, JSON diffing, WebSocket progress, release readiness, deploy-gate simulation, endpoint risk scoring, PII redaction, and a Monaco side-by-side diff viewer.
 
 ## Problem
 
@@ -27,7 +27,6 @@ New staging behavior
                           +----------------------+
                           |      React UI        |
                           |  DriftGuard Console  |
-                          |   localhost:3000     |
                           +----------+-----------+
                                      |
                               REST + WebSocket
@@ -35,21 +34,21 @@ New staging behavior
                                      v
 +------------------+       +----------------------+       +------------------+
 | Traffic Proxy    | ----> | Spring Boot Backend  | ----> | PostgreSQL       |
-| localhost:8083   |       | localhost:8080       |       | baselines/results|
+| shadow capture   |       | DriftGuard API       |       | baselines/results|
 +--------+---------+       +----------+-----------+       +------------------+
          |                            |
          | forwards request           | live replay state
          v                            v
 +------------------+          +------------------+
 | Mock Production  |          | Redis            |
-| localhost:8081   |          | replay progress  |
+| or real service  |          | replay progress  |
 +------------------+          +------------------+
 
 Replay phase:
 
 +----------------------+       +------------------+
 | Spring Boot Backend  | ----> | Mock Staging     |
-| replays saved calls  |       | localhost:8082   |
+| replays saved calls  |       | or staging env   |
 +----------------------+       +------------------+
           |
           v
@@ -74,7 +73,7 @@ Replay phase:
    allow deploy, needs review, or block deploy
 ```
 
-In the demo, production and staging are simulated by `infra/mock-checkout/server.js`.
+For local demonstration, production and staging are simulated by `infra/mock-checkout/server.js`.
 
 ## Tech Stack
 
@@ -136,11 +135,11 @@ Stored data includes:
 - response headers/body
 - response time
 
-In the demo, snapshots come from:
+In the local demo environment, snapshots come from:
 
 - seeded data in `DemoDataSeeder.java`
-- mock production API at `localhost:8081`
-- traffic proxy at `localhost:8083`
+- the mock production service
+- the traffic proxy service
 
 ### Staging Replay
 
@@ -252,7 +251,7 @@ $.request_id
 $.items[*].updatedAt
 ```
 
-## Running Locally
+## Running The System
 
 Prerequisites:
 
@@ -266,11 +265,7 @@ Start the full stack:
 docker compose up --build
 ```
 
-Open:
-
-```text
-http://localhost:3000
-```
+Open the frontend URL exposed by Docker Compose. The default port mappings are defined in `docker-compose.yml`.
 
 Demo login:
 
@@ -287,21 +282,9 @@ docker compose down -v
 docker compose up --build
 ```
 
-## Local URLs
-
-| Service | URL |
-| --- | --- |
-| Frontend | http://localhost:3000 |
-| Backend | http://localhost:8080 |
-| Mock production API | http://localhost:8081 |
-| Mock staging API | http://localhost:8082 |
-| Traffic proxy | http://localhost:8083 |
-| PostgreSQL | localhost:5432 |
-| Redis | localhost:6379 |
-
 ## Demo Walkthrough
 
-1. Open `http://localhost:3000`.
+1. Open the frontend application.
 2. Log in with the demo credentials.
 3. On Dashboard, select `checkout-api`.
 4. Click `Run demo`.
@@ -317,9 +300,9 @@ docker compose up --build
 10. Open Reports to show drift trend over time.
 11. Open PII Vault to show safe production capture controls.
 
-## Demo Production And Staging APIs
+## Example Production And Staging APIs
 
-The mock API is manually written for the interview demo:
+The mock API is included to demonstrate the capture and replay workflow without requiring an external service:
 
 ```text
 infra/mock-checkout/server.js
@@ -339,21 +322,11 @@ Production: price.amount = 49.0
 Staging:    price.amount = "49.0"
 ```
 
-That intentional difference creates drift for the demo.
+That intentional difference creates drift during the local example flow.
 
-## Traffic Proxy Demo
+## Traffic Proxy
 
-Send requests through the proxy:
-
-```powershell
-curl.exe http://localhost:8083/checkout/cart
-curl.exe http://localhost:8083/checkout/price/101
-curl.exe -X POST http://localhost:8083/checkout/order `
-  -H "Content-Type: application/json" `
-  -d "{\"cartId\":\"cart_123\"}"
-```
-
-The proxy forwards to mock production and records the response into DriftGuard.
+The proxy forwards requests to the configured production service and records the response into DriftGuard. It is configured through environment variables for the target URL, DriftGuard backend URL, service name, API key, sampling rate, and maximum body size.
 
 ## API Endpoints
 
@@ -409,53 +382,21 @@ WebSocket:
 | --- | --- |
 | `/ws/replay/{sessionId}` | Live replay progress events |
 
-## Useful Curl Commands
+## Build Verification
 
-List services:
-
-```powershell
-curl.exe -H "X-API-Key: dg_demo_checkout_api_key" http://localhost:8080/api/services
-```
-
-Start replay:
-
-```powershell
-curl.exe -X POST http://localhost:8080/api/replay `
-  -H "Content-Type: application/json" `
-  -H "X-API-Key: dg_demo_checkout_api_key" `
-  -d "{\"serviceId\":\"SERVICE_ID\",\"stagingUrl\":\"http://mock-checkout-staging:8081\"}"
-```
-
-Run deploy gate:
-
-```powershell
-curl.exe -X POST http://localhost:8080/api/webhooks/deploy/gate `
-  -H "Content-Type: application/json" `
-  -H "X-API-Key: dg_demo_checkout_api_key" `
-  -d "{\"serviceId\":\"SERVICE_ID\",\"stagingUrl\":\"http://mock-checkout-staging:8081\",\"failOnBreaking\":true,\"maxWaitSeconds\":90}"
-```
-
-## Local Development
-
-Backend:
+Backend tests:
 
 ```powershell
 cd backend
 .\gradlew.bat test
 ```
 
-Frontend:
+Frontend typecheck and production build:
 
 ```powershell
 cd frontend
 npm install
-npm run dev
-```
-
-Production frontend build:
-
-```powershell
-cd frontend
+npm run typecheck
 npm run build
 ```
 
@@ -498,26 +439,4 @@ For real production use, DriftGuard should be deployed with:
 - role-based access control
 - audit logging
 
-The demo includes the key primitives: API keys, JWT login, sampling settings in the traffic proxy, and redaction rules.
-
-## Interview Talking Points
-
-- DriftGuard uses real production behavior as test cases, not only manually written tests.
-- It tests staging before release by replaying saved production requests.
-- It catches behavioral drift, not just schema drift.
-- It classifies breaking, warning, and performance changes.
-- It explains risky changes in human-readable language.
-- It has CI/CD deploy gate behavior that can block unsafe releases.
-- It handles noisy fields with ignore rules.
-- It handles sensitive fields with redaction/hash/drop rules.
-- PostgreSQL stores durable snapshots and results; Redis tracks live replay state.
-- WebSockets make replay progress visible in real time.
-- Endpoint risk score helps teams fix the highest-impact drift first.
-
-## Current Demo Credentials
-
-```text
-Email:    demo@driftguard.local
-Password: driftguard
-API key:  dg_demo_checkout_api_key
-```
+The included implementation provides the key primitives: API keys, JWT login, sampling settings in the traffic proxy, and redaction rules.
