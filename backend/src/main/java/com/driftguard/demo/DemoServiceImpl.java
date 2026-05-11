@@ -114,7 +114,8 @@ public class DemoServiceImpl implements DemoService {
     }
 
     private String productionBaseUrl(RegisteredService service) {
-        if (service.getBaseUrl().contains("checkout-api.prod.local")) {
+        if (service.getBaseUrl().contains("checkout-api.prod.local")
+                || service.getBaseUrl().contains("mock-checkout-prod")) {
             return appProperties.demoProductionUrl();
         }
         return service.getBaseUrl();
