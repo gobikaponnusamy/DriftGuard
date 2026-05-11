@@ -115,7 +115,7 @@ public class DemoServiceImpl implements DemoService {
 
     private String productionBaseUrl(RegisteredService service) {
         if (service.getBaseUrl().contains("checkout-api.prod.local")) {
-            return "http://mock-checkout-prod:8081";
+            return appProperties.demoProductionUrl();
         }
         return service.getBaseUrl();
     }

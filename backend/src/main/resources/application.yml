@@ -13,6 +13,9 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      ssl:
+        enabled: ${SPRING_DATA_REDIS_SSL_ENABLED:false}
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -42,6 +45,7 @@ management:
 
 driftguard:
   api-base-url: ${DRIFTGUARD_API_BASE_URL:http://localhost:8080}
+  demo-production-url: ${DRIFTGUARD_DEMO_PRODUCTION_URL:http://mock-checkout-prod:8081}
   demo-staging-url: ${DRIFTGUARD_DEMO_STAGING_URL:http://localhost:8082}
   jwt:
     secret: ${DRIFTGUARD_JWT_SECRET:dev-only-change-this-secret-before-production}
