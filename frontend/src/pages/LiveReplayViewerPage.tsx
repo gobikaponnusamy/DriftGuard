@@ -46,6 +46,29 @@ export function LiveReplayViewerPage() {
   const isPromoted = Boolean(latestPromotion);
 
   useEffect(() => {
+    if (sessionId || services.isLoading || !services.data?.length) {
+      return;
+    }
+    let cancelled = false;
+    async function openDefaultReplay() {
+      const preferredService = services.data!.find((service) => service.name.toLowerCase() === 'checkout-api') ?? services.data![0];
+      try {
+        const points = await getTimeline(preferredService.id);
+        const latestSession = points.at(-1)?.sessionId;
+        if (!cancelled && latestSession) {
+          navigate(`/replay/${latestSession}`, { replace: true });
+        }
+      } catch {
+        // Keep the selector visible if this service has no replay history yet.
+      }
+    }
+    void openDefaultReplay();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, services.isLoading, services.data, navigate]);
+
+  useEffect(() => {
     if (!sessionId || session.data?.status === 'DONE' || session.data?.status === 'FAILED') {
       return;
     }

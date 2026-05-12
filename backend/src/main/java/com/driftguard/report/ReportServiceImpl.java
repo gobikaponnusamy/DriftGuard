@@ -67,13 +67,13 @@ public class ReportServiceImpl implements ReportService {
         long ignored = countTriage(results, TriageStatus.IGNORED);
         long fixed = countTriage(results, TriageStatus.FIXED);
         long blocking = countTriage(results, TriageStatus.BLOCKING);
-        String decision = decision(latest.getStatus(), results);
+        String decision = decision(latest, results);
         return new ReleaseReadinessResponse(
                 serviceId,
                 latest.getId(),
                 latest.getStatus(),
                 decision,
-                message(decision),
+                message(decision, latest, results),
                 latest.getTriggeredAt(),
                 latest.getTotalRequests(),
                 latest.getDriftedCount(),
@@ -126,12 +126,15 @@ public class ReportServiceImpl implements ReportService {
         return results.stream().filter(result -> result.getTriageStatus() == status).count();
     }
 
-    private String decision(ReplayStatus status, List<ReplayResult> results) {
-        if (status == ReplayStatus.FAILED) {
+    private String decision(ReplaySession session, List<ReplayResult> results) {
+        if (session.getStatus() == ReplayStatus.FAILED) {
             return "BLOCKED";
         }
-        if (status != ReplayStatus.DONE) {
+        if (session.getStatus() != ReplayStatus.DONE) {
             return "PENDING";
+        }
+        if (session.getTotalRequests() == 0 || results.isEmpty()) {
+            return "BLOCKED";
         }
         boolean hasBlocking = results.stream().anyMatch(result -> result.getTriageStatus() == TriageStatus.BLOCKING);
         boolean hasOpenBreaking = results.stream().anyMatch(result ->
@@ -147,7 +150,10 @@ public class ReportServiceImpl implements ReportService {
         return "READY";
     }
 
-    private String message(String decision) {
+    private String message(String decision, ReplaySession session, List<ReplayResult> results) {
+        if (session.getStatus() == ReplayStatus.DONE && (session.getTotalRequests() == 0 || results.isEmpty())) {
+            return "No baseline requests were replayed. Capture or add baselines before testing staging.";
+        }
         return switch (decision) {
             case "READY" -> "All drift has been triaged. Release can proceed.";
             case "NEEDS_REVIEW" -> "Non-breaking drift still needs review.";

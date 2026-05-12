@@ -31,8 +31,8 @@ export function Layout({ children }: PropsWithChildren) {
   const { data: services = [], reload } = useServices();
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const serviceId = services[0]?.id;
-  const [latestReplay, setLatestReplay] = useState('/');
+  const serviceId = services.find((service) => service.name.toLowerCase() === 'checkout-api')?.id ?? services[0]?.id;
+  const [latestReplay, setLatestReplay] = useState('/replay');
 
   useEffect(() => {
     if (!serviceId) {
@@ -48,7 +48,7 @@ export function Layout({ children }: PropsWithChildren) {
         }
         setLatestReplay(`/replay/${latest}`);
       } catch {
-        setLatestReplay('/');
+        setLatestReplay('/replay');
       }
     }
     void loadLatestReplay();

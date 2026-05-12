@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Activity, AlertTriangle, ArrowRight, Database, Play, Radar, Server, Trash2 } from 'lucide-react';
-import { deleteService, getReplaySession, getTimeline, listBaselines, recordBaseline, runDemoCapture, runDemoScenario, triggerReplay } from '../api/endpoints';
+import { deleteService, getReadiness, getReplaySession, getTimeline, listBaselines, recordBaseline, runDemoCapture, triggerReplay } from '../api/endpoints';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Button, Input } from '../components/forms';
 import { Modal } from '../components/Modal';
@@ -10,7 +10,7 @@ import { StatusPill } from '../components/StatusPill';
 import { EmptyBlock, ErrorBlock, LoadingBlock } from '../components/StateBlock';
 import { syntheticStagingUrl } from '../config/runtimeSettings';
 import { useServices } from '../hooks/useServices';
-import type { RegisteredService } from '../types/api';
+import type { ReadinessDecision, RegisteredService, ReplayStatus } from '../types/api';
 
 export function DashboardPage() {
   const { data: services = [], isLoading, error, reload } = useServices();
@@ -37,20 +37,28 @@ export function DashboardPage() {
     let cancelled = false;
     async function loadStats() {
       const entries = await Promise.all(services.map(async (service) => {
-        const [baselines, timeline] = await Promise.all([
+        const [baselines, timeline, readiness] = await Promise.all([
           listBaselines(service.id, 0, 1),
           getTimeline(service.id),
+          getReadiness(service.id).catch(() => undefined),
         ]);
         const latest = timeline.at(-1);
-        const latestSession = latest ? await getReplaySession(latest.sessionId).catch(() => undefined) : undefined;
+        const latestSession = readiness
+          ? await getReplaySession(readiness.sessionId).catch(() => undefined)
+          : latest
+            ? await getReplaySession(latest.sessionId).catch(() => undefined)
+            : undefined;
         return [service.id, {
           baselines: baselines.totalElements,
-          requests: latestSession?.totalRequests || baselines.totalElements,
+          requests: readiness?.totalRequests || latestSession?.totalRequests || baselines.totalElements,
           replays: timeline.length,
           breaking: timeline.reduce((sum, point) => sum + point.breaking, 0),
-          warning: latest?.warning ?? 0,
-          performance: latest?.performance ?? 0,
-          latestBreaking: latest?.breaking ?? 0,
+          warning: readiness?.warningCount ?? latest?.warning ?? 0,
+          performance: readiness?.performanceCount ?? latest?.performance ?? 0,
+          latestBreaking: readiness?.breakingCount ?? latest?.breaking ?? 0,
+          readinessDecision: readiness?.decision,
+          latestStatus: readiness?.status,
+          readinessMessage: readiness?.message,
         }] as const;
       }));
       if (!cancelled) {
@@ -82,9 +90,14 @@ export function DashboardPage() {
     setActionMessage('');
     try {
       if (service.name.toLowerCase() === 'checkout-api') {
-        const run = await runDemoScenario(service.id);
-        setActionMessage(`Recorded ${run.capturedCount} demo baselines and started staging test.`);
-        navigate(`/replay/${run.sessionId}`);
+        const baselinePage = await listBaselines(service.id, 0, 1);
+        if (baselinePage.totalElements === 0) {
+          setActionError('checkout-api has no baselines in this environment. Add or capture API baselines before testing staging.');
+          return;
+        }
+        const session = await triggerReplay({ serviceId: service.id, stagingUrl: syntheticStagingUrl(service.id) });
+        setActionMessage(`Started checkout staging test with ${baselinePage.totalElements} saved baseline requests.`);
+        navigate(`/replay/${session.id}`);
         return;
       }
       setReplayService(service);
@@ -234,6 +247,9 @@ interface ServiceStats {
   warning: number;
   performance: number;
   latestBreaking: number;
+  readinessDecision?: ReadinessDecision;
+  latestStatus?: ReplayStatus;
+  readinessMessage?: string;
 }
 
 function ServiceRow({ service, stats, onCapture, onRunDemo, onReplay, onManageApis, onDelete }: {
@@ -246,13 +262,31 @@ function ServiceRow({ service, stats, onCapture, onRunDemo, onReplay, onManageAp
   onDelete: () => void;
 }) {
   const isDemoService = service.name.toLowerCase() === 'checkout-api';
-  const driftLabel = stats?.latestBreaking
+  const blocked = stats?.readinessDecision === 'BLOCKED' || Boolean(stats?.latestBreaking);
+  const driftLabel = !stats
+    ? 'Loading'
+    : stats.baselines === 0
+      ? 'No baselines'
+      : stats.readinessDecision === 'BLOCKED'
+    ? 'Blocked'
+    : stats?.readinessDecision === 'PENDING'
+      ? 'Pending'
+      : stats?.readinessDecision === 'NEEDS_REVIEW'
+        ? 'Needs review'
+      : stats?.latestBreaking
     ? `${stats.latestBreaking} breaking`
     : stats?.warning
       ? `${stats.warning} warnings`
       : stats?.performance
         ? `${stats.performance} perf`
-        : 'No drift';
+        : 'Ready';
+  const pillTone = !stats || stats.baselines === 0
+    ? 'muted'
+    : blocked
+      ? 'red'
+      : stats.readinessDecision === 'PENDING' || stats.readinessDecision === 'NEEDS_REVIEW'
+        ? 'blue'
+        : 'green';
   return (
     <div className="panel-hover animate-drift-fade-up rounded-xl border border-white/10 bg-gradient-to-br from-[#11162a]/90 to-[#090a13]/92 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.30)] backdrop-blur-xl">
       <div className="space-y-5">
@@ -273,7 +307,7 @@ function ServiceRow({ service, stats, onCapture, onRunDemo, onReplay, onManageAp
               </div>
             </div>
           </div>
-          <StatusPill label={driftLabel} tone={stats?.latestBreaking ? 'red' : 'green'} />
+          <StatusPill label={driftLabel} tone={pillTone} />
         </div>
 
         <div className="grid grid-cols-4 gap-2">
@@ -285,12 +319,12 @@ function ServiceRow({ service, stats, onCapture, onRunDemo, onReplay, onManageAp
 
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
           <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-slate-500">
-            <span title="Estimated readiness from replay activity and current drift severity. Red means blocking drift remains.">Release readiness path</span>
+            <span title={stats?.readinessMessage ?? 'Estimated readiness from replay activity and current drift severity. Red means blocking drift remains.'}>Release readiness path</span>
             <span>Created {new Date(service.createdAt).toLocaleDateString()}</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-[#05070a]">
             <div
-              className={`h-full rounded-full ${stats?.latestBreaking ? 'bg-gradient-to-r from-red-500 to-rose-300' : 'bg-gradient-to-r from-emerald-500 to-lime-300'}`}
+              className={`h-full rounded-full ${blocked ? 'bg-gradient-to-r from-red-500 to-rose-300' : 'bg-gradient-to-r from-emerald-500 to-lime-300'}`}
               style={{ width: `${Math.min(100, 30 + (stats?.replays ?? 0) * 18)}%` }}
             />
           </div>
@@ -304,7 +338,7 @@ function ServiceRow({ service, stats, onCapture, onRunDemo, onReplay, onManageAp
           <Button onClick={isDemoService ? onRunDemo : onReplay} title="Replay saved baselines against staging." className="border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-50">
             <Play className="mr-1 inline h-3.5 w-3.5" /> Test staging
           </Button>
-          {isDemoService && <Button onClick={onCapture} title="Demo only: record responses from the mock production checkout API.">Record demo traffic</Button>}
+          {isDemoService && <Button onClick={onCapture} title="Local Docker only: record responses from the mock production checkout API.">Record demo traffic</Button>}
           <Button onClick={onManageApis} title="Add new API baselines for this service. Existing APIs can be changed from Baselines.">Add APIs</Button>
           <Link className="inline-flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold transition hover:border-fuchsia-300/60 hover:bg-white/[0.08]" to={`/services/${service.id}/baselines`}>Baselines <ArrowRight className="h-3.5 w-3.5" /></Link>
           <Link className="inline-flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold transition hover:border-fuchsia-300/60 hover:bg-white/[0.08]" to={`/services/${service.id}/reports`}>Reports <ArrowRight className="h-3.5 w-3.5" /></Link>

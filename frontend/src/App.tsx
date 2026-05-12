@@ -21,6 +21,7 @@ function AppShell() {
           <Route path="/services/:serviceId/reports" element={<DriftTimelinePage />} />
           <Route path="/services/:serviceId/ignore-rules" element={<IgnoreRulesPage />} />
           <Route path="/services/:serviceId/pii-vault" element={<PiiVaultPage />} />
+          <Route path="/replay" element={<LiveReplayViewerPage />} />
           <Route path="/replay/:sessionId" element={<LiveReplayViewerPage />} />
           <Route path="/replay/:sessionId/results/:resultId" element={<DiffViewerPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
