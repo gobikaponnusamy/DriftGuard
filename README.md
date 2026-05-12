@@ -2,7 +2,7 @@
 
 DriftGuard is a full-stack production behavior diff tool. It saves safe, sampled examples of how an API behaves today, replays the same requests against staging, and shows exactly what changed before the new version reaches customers.
 
-The platform includes traffic capture, replay orchestration, JSON diffing, WebSocket progress, release readiness, deploy-gate simulation, endpoint risk scoring, PII redaction, and a Monaco side-by-side diff viewer.
+The platform includes traffic capture, replay orchestration, synthetic staging for demos, replay authentication, JSON diffing, WebSocket progress, release readiness, deploy-gate simulation, endpoint risk scoring, PII redaction, API baseline editing, and a Monaco side-by-side diff viewer.
 
 ## Problem
 
@@ -73,7 +73,7 @@ Replay phase:
    allow deploy, needs review, or block deploy
 ```
 
-For local demonstration, production and staging are simulated by `infra/mock-checkout/server.js`.
+For demonstration, production and staging can be simulated by `infra/mock-checkout/server.js`. User-added services can also use DriftGuard's synthetic staging endpoint, which generates staging-like responses from the saved baselines.
 
 ## Tech Stack
 
@@ -152,6 +152,28 @@ Each replay creates:
 - structured diff JSON
 - drift severity
 
+For user-created demo services, DriftGuard can generate a synthetic staging target:
+
+```text
+/synthetic-staging/{serviceId}
+```
+
+The synthetic target reads the saved baseline for the same method and path, then applies realistic staging-like changes such as field renames, value format changes, added release metadata, and latency changes. In a real environment, the staging URL is the actual staging deployment.
+
+### Replay Authentication
+
+Each service can store replay-only authentication settings. These credentials are used when DriftGuard calls staging during replay, and the secret value is never returned in list responses.
+
+Supported replay auth modes:
+
+| Mode | Header sent during replay |
+| --- | --- |
+| None | no extra auth header |
+| Bearer token | `Authorization: Bearer <token>` |
+| API key header | custom header such as `X-API-Key` |
+| Basic auth | `Authorization: Basic <encoded username:password>` |
+| Custom header | custom header name and value |
+
 ### Deep JSON Diff Engine
 
 The diff engine detects:
@@ -189,6 +211,9 @@ The UI shows:
 - release readiness
 - endpoint risk score
 - contract change summary
+- release impact analysis
+- single-endpoint re-run
+- endpoint drift history
 
 ### Monaco Diff Viewer
 
@@ -251,6 +276,17 @@ $.request_id
 $.items[*].updatedAt
 ```
 
+### API Baseline Management
+
+Services can be extended after registration:
+
+- **Add APIs** adds new request/response examples as baselines.
+- After adding APIs, DriftGuard immediately starts a new replay so the new endpoints appear in Live Replay.
+- Existing API baselines can be edited from the Baselines page with the edit action.
+- Edited baselines are used by future replay sessions.
+
+This keeps the demo workflow realistic: adding or changing APIs updates the baseline library first, then replay proves whether staging still behaves correctly.
+
 ## Running The System
 
 Prerequisites:
@@ -287,7 +323,7 @@ docker compose up --build
 1. Open the frontend application.
 2. Log in with the demo credentials.
 3. On Dashboard, select `checkout-api`.
-4. Click `Run demo`.
+4. Click `Test staging` on `checkout-api`.
 5. DriftGuard captures mock production responses and tests mock staging.
 6. Open Live Replay.
 7. Review:
@@ -299,6 +335,7 @@ docker compose up --build
 9. Show smart drift explanations and triage controls.
 10. Open Reports to show drift trend over time.
 11. Open PII Vault to show safe production capture controls.
+12. Add a custom service, import an OpenAPI spec or add baseline examples, then watch DriftGuard create a synthetic staging replay.
 
 ## Example Production And Staging APIs
 
@@ -353,8 +390,10 @@ Public auth endpoints are excluded.
 | `POST` | `/api/record/{serviceId}` | Record production snapshot |
 | `GET` | `/api/baselines/{serviceId}` | List production snapshots |
 | `GET` | `/api/baselines/{serviceId}/{id}` | Get snapshot detail |
+| `PUT` | `/api/baselines/{serviceId}/{id}` | Update an existing API baseline |
 | `DELETE` | `/api/baselines/{serviceId}/{id}` | Delete snapshot |
 | `POST` | `/api/replay` | Start staging replay |
+| `POST` | `/api/replay/baseline` | Re-run one baseline only |
 | `GET` | `/api/replay/{sessionId}` | Replay session status |
 | `GET` | `/api/replay/{sessionId}/results` | Replay results |
 | `GET` | `/api/replay/{sessionId}/results/{id}` | Single result with full diff |
@@ -369,12 +408,19 @@ Public auth endpoints are excluded.
 | `DELETE` | `/api/redaction-rules/{serviceId}/{id}` | Delete redaction rule |
 | `GET` | `/api/reports/{serviceId}/timeline` | Drift timeline |
 | `GET` | `/api/reports/{serviceId}/readiness` | Release readiness |
+| `GET` | `/api/reports/{serviceId}/endpoint-history` | Drift history for one endpoint path |
 | `POST` | `/api/webhooks/deploy` | CI webhook trigger |
 | `POST` | `/api/webhooks/deploy/gate` | Blocking deploy gate |
 | `GET` | `/api/webhooks/deploy/{sessionId}/gate` | Poll gate status |
 | `POST` | `/api/demo/capture/{serviceId}` | Capture mock production |
 | `POST` | `/api/demo/replay/{serviceId}` | Replay against mock staging |
 | `POST` | `/api/demo/run/{serviceId}` | Capture + replay demo flow |
+
+Synthetic staging:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `ANY` | `/synthetic-staging/{serviceId}/**` | Demo staging target generated from saved baselines |
 
 WebSocket:
 
@@ -419,6 +465,12 @@ Flyway migrations create:
 - `baseline_promotions`
 - `app_users`
 
+The `services` table also stores replay-auth configuration:
+
+- `replay_auth_type`
+- `replay_auth_header_name`
+- `replay_auth_value`
+
 The most important tables are:
 
 ```text
@@ -440,3 +492,27 @@ For real production use, DriftGuard should be deployed with:
 - audit logging
 
 The included implementation provides the key primitives: API keys, JWT login, sampling settings in the traffic proxy, and redaction rules.
+
+## Current Product Workflows
+
+### Registering a Service
+
+The Add Service flow supports:
+
+- manual baseline examples JSON
+- OpenAPI file upload
+- OpenAPI URL import
+- pasted OpenAPI JSON
+- replay authentication settings
+
+OpenAPI import creates endpoint previews and converts endpoints into baseline examples. If the spec does not include `servers[0].url`, the user enters the production base URL manually.
+
+### Adding Or Changing APIs
+
+The dashboard action **Add APIs** adds new baselines to an existing service and starts a fresh replay immediately.
+
+The Baselines page supports editing an existing baseline. That is the correct path for changing an existing API expectation.
+
+### Demo Data Restore
+
+On startup, if `checkout-api` already exists but has no baselines, the demo seeder restores the checkout demo baselines and replay session. This prevents the demo dashboard from showing an empty checkout service after local data has been modified.

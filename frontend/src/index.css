@@ -4,17 +4,118 @@
 
 :root {
   color: #f8fafc;
-  background: #101111;
+  background: #06070a;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 14% 8%, rgba(99, 102, 241, 0.24), transparent 26rem),
+    radial-gradient(circle at 84% 18%, rgba(236, 72, 153, 0.18), transparent 28rem),
+    radial-gradient(circle at 48% 95%, rgba(251, 191, 36, 0.10), transparent 30rem),
+    #05060b;
+}
+
+@keyframes drift-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift-glow {
+  0%, 100% {
+    opacity: 0.55;
+    transform: translateX(-18%);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateX(18%);
+  }
+}
+
+@keyframes drift-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.16);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(45, 212, 191, 0);
+  }
+}
+
+@keyframes drift-sweep {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
+.animate-drift-fade-up {
+  animation: drift-fade-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-drift-glow {
+  animation: drift-glow 7s ease-in-out infinite;
+}
+
+.animate-drift-pulse {
+  animation: drift-pulse 2.4s ease-in-out infinite;
+}
+
+.animate-drift-sweep {
+  animation: drift-sweep 4.8s ease-in-out infinite;
+}
+
+.glass-line {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-line::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+  transform: translateX(-120%);
+  animation: drift-sweep 5.5s ease-in-out infinite;
+}
+
+.panel-hover {
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.panel-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(168, 85, 247, 0.42);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.36);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 * {
@@ -26,4 +127,8 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+::selection {
+  background: rgba(45, 212, 191, 0.35);
 }

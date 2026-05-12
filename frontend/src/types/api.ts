@@ -25,6 +25,7 @@ export type IgnoreRuleType = 'IGNORE' | 'MASK';
 export type RedactionRuleType = 'REDACT' | 'HASH' | 'DROP';
 export type TriageStatus = 'OPEN' | 'ACCEPTED' | 'IGNORED' | 'FIXED' | 'BLOCKING';
 export type ReadinessDecision = 'READY' | 'NEEDS_REVIEW' | 'BLOCKED' | 'PENDING';
+export type ReplayAuthType = 'NONE' | 'BEARER_TOKEN' | 'API_KEY_HEADER' | 'BASIC_AUTH' | 'CUSTOM_HEADER';
 
 export interface LoginResponse {
   userId: string;
@@ -40,6 +41,9 @@ export interface RegisteredService {
   id: string;
   name: string;
   baseUrl: string;
+  replayAuthType: ReplayAuthType;
+  replayAuthHeaderName?: string;
+  replayAuthConfigured: boolean;
   createdAt: string;
 }
 
@@ -163,4 +167,12 @@ export interface BaselinePromotion {
   promotedCount: number;
   forced: boolean;
   promotedAt: string;
+}
+
+export interface EndpointHistoryPoint {
+  sessionId: string;
+  replayedAt: string;
+  driftType: DriftType;
+  triageStatus: TriageStatus;
+  responseTimeMs: number;
 }

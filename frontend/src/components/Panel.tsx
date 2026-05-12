@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from 'react';
 
 export function Panel({ children }: PropsWithChildren) {
-  return <section className="rounded-lg border border-[#465047] bg-[#222620] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">{children}</section>;
+  return <section className="rounded-xl border border-white/10 bg-[#0d1117]/80 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.30)] backdrop-blur-xl">{children}</section>;
 }

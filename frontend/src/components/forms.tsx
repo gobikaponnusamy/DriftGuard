@@ -1,13 +1,17 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`h-9 rounded-md border border-[#59615b] bg-[#151815] px-3 text-xs font-semibold text-slate-100 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 ${props.className ?? ''}`} />;
+  return <input {...props} className={`h-10 rounded-lg border border-white/10 bg-[#090a12] px-3 text-xs font-semibold text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-fuchsia-300 focus:ring-2 focus:ring-fuchsia-400/20 ${props.className ?? ''}`} />;
 }
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`h-9 rounded-md border border-[#59615b] bg-[#151815] px-3 text-xs font-semibold text-slate-100 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 ${props.className ?? ''}`} />;
+  return <select {...props} className={`h-10 rounded-lg border border-white/10 bg-[#090a12] px-3 text-xs font-semibold text-slate-100 outline-none transition focus:border-fuchsia-300 focus:ring-2 focus:ring-fuchsia-400/20 ${props.className ?? ''}`} />;
+}
+
+export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...props} className={`no-scrollbar min-h-24 rounded-lg border border-white/10 bg-[#090a12] px-3 py-2 text-xs font-semibold text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-fuchsia-300 focus:ring-2 focus:ring-fuchsia-400/20 ${props.className ?? ''}`} />;
 }
 
 export function Button({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button {...props} className={`h-8 rounded-md border border-[#667069] bg-[#2b302b] px-3 text-xs font-bold text-slate-100 transition hover:border-blue-400/70 hover:bg-[#353b35] disabled:opacity-50 ${className ?? ''}`} />;
+  return <button {...props} className={`h-9 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-bold text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:border-fuchsia-300/70 hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-50 ${className ?? ''}`} />;
 }

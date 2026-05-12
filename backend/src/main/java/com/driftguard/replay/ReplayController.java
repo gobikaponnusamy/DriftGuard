@@ -30,6 +30,14 @@ public class ReplayController {
                 .body(ApiResponse.success(replayService.trigger(request)));
     }
 
+    @PostMapping("/api/replay/baseline")
+    public ResponseEntity<ApiResponse<ReplaySessionResponse>> triggerBaseline(
+            @Valid @RequestBody TriggerBaselineReplayRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(ApiResponse.success(replayService.triggerBaseline(request)));
+    }
+
     @GetMapping("/api/replay/{sessionId}")
     public ApiResponse<ReplaySessionResponse> getSession(@PathVariable UUID sessionId) {
         return ApiResponse.success(replayService.getSession(sessionId));

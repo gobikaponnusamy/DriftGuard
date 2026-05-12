@@ -8,6 +8,9 @@ public record ServiceRegistrationResponse(
         String name,
         String baseUrl,
         String apiKey,
+        ReplayAuthType replayAuthType,
+        String replayAuthHeaderName,
+        boolean replayAuthConfigured,
         Instant createdAt
 ) {
     static ServiceRegistrationResponse fromEntity(RegisteredService service, String apiKey) {
@@ -16,6 +19,10 @@ public record ServiceRegistrationResponse(
                 service.getName(),
                 service.getBaseUrl(),
                 apiKey,
+                service.getReplayAuthType(),
+                service.getReplayAuthHeaderName(),
+                service.getReplayAuthType() != ReplayAuthType.NONE && service.getReplayAuthValue() != null
+                        && !service.getReplayAuthValue().isBlank(),
                 service.getCreatedAt()
         );
     }

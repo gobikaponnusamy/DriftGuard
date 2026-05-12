@@ -1,7 +1,7 @@
-import { FormEvent, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ShieldCheck, ShieldX } from 'lucide-react';
-import { promoteReplaySession } from '../api/endpoints';
+import { getEndpointHistory, getTimeline, promoteReplaySession, triggerBaselineReplay } from '../api/endpoints';
 import { DriftBadge } from '../components/DriftBadge';
 import { Button, Input } from '../components/forms';
 import { Modal } from '../components/Modal';
@@ -14,17 +14,22 @@ import { useReplayResults } from '../hooks/useReplayResults';
 import { useReplaySession } from '../hooks/useReplaySession';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useReadiness } from '../hooks/useReadiness';
-import type { DriftType, ReleaseReadiness, ReplayProgressEvent } from '../types/api';
+import { useServices } from '../hooks/useServices';
+import type { DriftType, EndpointHistoryPoint, ReleaseReadiness, ReplayProgressEvent } from '../types/api';
 import { statusTone } from '../utils/format';
 
 export function LiveReplayViewerPage() {
   const { sessionId = '' } = useParams();
+  const navigate = useNavigate();
   const session = useReplaySession(sessionId);
   const results = useReplayResults(sessionId);
   const readiness = useReadiness(session.data?.serviceId ?? '');
   const promotions = usePromotions(sessionId);
+  const services = useServices();
   const socket = useWebSocket(sessionId);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  const [historyEndpoint, setHistoryEndpoint] = useState<{ method: string; path: string }>();
+  const [actionError, setActionError] = useState('');
   const [search, setSearch] = useState('');
   const progressEvent = socket.events.at(-1);
   const total = progressEvent?.total || session.data?.totalRequests || results.data?.length || 0;
@@ -36,8 +41,29 @@ export function LiveReplayViewerPage() {
   const sortedRows = useMemo(() => sortReplayRows(filteredRows, sort), [filteredRows, sort]);
   const endpointRisks = useMemo(() => endpointRiskSummary(results.data ?? []), [results.data]);
   const contractSummary = useMemo(() => contractChangeSummary(results.data ?? []), [results.data]);
+  const releaseImpact = useMemo(() => releaseImpactAnalysis(results.data ?? [], readiness.data), [results.data, readiness.data]);
   const latestPromotion = promotions.data?.[0];
   const isPromoted = Boolean(latestPromotion);
+
+  useEffect(() => {
+    if (!sessionId || session.data?.status === 'DONE' || session.data?.status === 'FAILED') {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void session.reload();
+      void results.reload();
+      void readiness.reload();
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [sessionId, session.data?.status, session.reload, results.reload, readiness.reload]);
+
+  async function selectService(serviceId: string) {
+    const points = await getTimeline(serviceId);
+    const latestSession = points.at(-1)?.sessionId;
+    if (latestSession) {
+      navigate(`/replay/${latestSession}`);
+    }
+  }
 
   return (
     <>
@@ -45,26 +71,48 @@ export function LiveReplayViewerPage() {
         title="Live replay"
         actions={(
           <>
+            <Button onClick={() => exportReplayReport(sessionId, session.data, results.data ?? [], readiness.data)}>
+              Export report
+            </Button>
             <Button onClick={() => setPromoteOpen(true)} disabled={session.data?.status !== 'DONE' || isPromoted}>
-              {isPromoted ? 'Baseline promoted' : 'Promote baseline'}
+              {isPromoted ? 'Baseline accepted' : 'Accept staging as baseline'}
             </Button>
             <StatusPill label={session.data?.status ?? (socket.isConnected ? 'RUNNING' : 'PENDING')} tone={statusTone(session.data?.status)} />
           </>
         )}
       />
       <div className="space-y-3 p-4">
+        <Panel>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-bold">Replay workspace</div>
+              <div className="mt-1 text-xs text-slate-400">Pick a service to open its latest replay session.</div>
+            </div>
+            <select
+              className="h-9 rounded-md border border-[#59615b] bg-[#151815] px-3 text-xs font-semibold text-slate-100 outline-none"
+              value={session.data?.serviceId ?? ''}
+              onChange={(event) => void selectService(event.target.value)}
+            >
+              <option value="" disabled>Select service</option>
+              {(services.data ?? []).map((service) => (
+                <option key={service.id} value={service.id}>{service.name}</option>
+              ))}
+            </select>
+          </div>
+        </Panel>
         {session.isLoading && <LoadingBlock label="Loading replay session" />}
         {session.error && <ErrorBlock message={session.error} />}
         {socket.error && <ErrorBlock message={socket.error} />}
+        {actionError && <ErrorBlock message={actionError} />}
         {readiness.data && readiness.data.sessionId === sessionId && (
           <ReadinessCard readiness={readiness.data} />
         )}
         {latestPromotion && (
           <Panel>
-            <div className="mb-2 text-sm font-bold">Promotion record</div>
+            <div className="mb-2 text-sm font-bold">Accepted baseline record</div>
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between rounded-md border border-[#3f473f] bg-[#151815] p-3">
-                <span>{latestPromotion.promotedCount} baselines promoted by <b>{latestPromotion.promotedBy}</b></span>
+                <span>{latestPromotion.promotedCount} staging responses accepted by <b>{latestPromotion.promotedBy}</b></span>
                 <span className="text-slate-400">{new Date(latestPromotion.promotedAt).toLocaleString()}</span>
               </div>
             </div>
@@ -88,6 +136,26 @@ export function LiveReplayViewerPage() {
         {readiness.data && readiness.data.sessionId === sessionId && (
           <ReleaseGateSimulator readiness={readiness.data} />
         )}
+        {results.data && results.data.length > 0 && (
+          <Panel>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold">Release impact analysis</div>
+                <p className="mt-1 text-xs text-slate-400">Turns replay drift into the decision a release owner needs.</p>
+              </div>
+              <StatusPill label={releaseImpact.decision} tone={releaseImpact.blocking ? 'red' : releaseImpact.review ? 'blue' : 'green'} />
+            </div>
+            <div className="grid gap-3 md:grid-cols-4">
+              <ImpactMetric label="Affected endpoints" value={releaseImpact.affectedEndpoints} detail={`${releaseImpact.totalEndpoints} replayed`} />
+              <ImpactMetric label="Contract breaks" value={releaseImpact.contractBreaks} detail="status, removed fields, or type changes" danger={releaseImpact.contractBreaks > 0} />
+              <ImpactMetric label="Customer-visible" value={releaseImpact.customerVisible} detail="value changes in response payloads" />
+              <ImpactMetric label="Latency regressions" value={releaseImpact.latencyRegressions} detail="response time crossed threshold" />
+            </div>
+            <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-300">
+              <b className="text-slate-100">Recommended action:</b> {releaseImpact.recommendation}
+            </div>
+          </Panel>
+        )}
         {endpointRisks.length > 0 && (
           <Panel>
             <div className="mb-3 flex items-center justify-between">
@@ -96,26 +164,52 @@ export function LiveReplayViewerPage() {
             </div>
             <div className="grid gap-2 lg:grid-cols-2">
               {endpointRisks.slice(0, 6).map((risk) => (
-                <Link
+                <div
                   key={`${risk.method}-${risk.path}`}
-                  to={risk.resultId ? `/replay/${sessionId}/results/${risk.resultId}` : '#'}
-                  title={`Open first drift result for ${risk.method} ${risk.path}`}
-                  className="grid grid-cols-[56px_minmax(0,1fr)_80px] items-center gap-3 rounded-md border border-[#3f473f] bg-[#151815] p-3 text-xs transition hover:border-cyan-300/70 hover:bg-[#1d231d]"
+                  role={risk.resultId ? 'button' : undefined}
+                  tabIndex={risk.resultId ? 0 : undefined}
+                  onClick={() => {
+                    if (risk.resultId) {
+                      navigate(`/replay/${sessionId}/results/${risk.resultId}`);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (risk.resultId && (event.key === 'Enter' || event.key === ' ')) {
+                      navigate(`/replay/${sessionId}/results/${risk.resultId}`);
+                    }
+                  }}
+                  className="cursor-pointer rounded-md border border-[#3f473f] bg-[#151815] p-3 text-xs transition hover:border-cyan-300/70 hover:bg-[#1d231d]"
                 >
-                  <span className="rounded bg-[#1b1d1b] px-2 py-1 text-center text-[10px] font-bold">{risk.method}</span>
-                  <div>
-                    <div className="truncate font-bold text-slate-100">{risk.path}</div>
-                    <div className="mt-1 text-slate-400">{risk.reason}</div>
+                  <div className="grid grid-cols-[56px_minmax(0,1fr)_80px] items-center gap-3">
+                    <span className="rounded bg-[#1b1d1b] px-2 py-1 text-center text-[10px] font-bold">{risk.method}</span>
+                    <div>
+                      <div className="truncate font-bold text-slate-100">{risk.path}</div>
+                      <div className="mt-1 text-slate-400">{risk.reason}</div>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-center text-[10px] font-bold ${risk.tone}`}>{risk.label}</span>
                   </div>
-                  <span className={`rounded-full px-2 py-1 text-center text-[10px] font-bold ${risk.tone}`}>{risk.label}</span>
-                </Link>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="rounded border border-white/10 px-2 py-1 font-bold text-slate-200" onClick={(event) => {
+                      event.stopPropagation();
+                      setHistoryEndpoint({ method: risk.method, path: risk.path });
+                    }}>History</button>
+                    {risk.resultId && <Link onClick={(event) => event.stopPropagation()} className="rounded border border-white/10 px-2 py-1 font-bold text-slate-200" to={`/replay/${sessionId}/results/${risk.resultId}`}>Open diff</Link>}
+                    {session.data && risk.baselineId && (
+                      <button className="rounded border border-white/10 px-2 py-1 font-bold text-slate-200" onClick={(event) => {
+                        event.stopPropagation();
+                        void rerunEndpoint(session.data!.serviceId, risk.baselineId!, session.data!.stagingUrl, setActionError, navigate);
+                      }}>Re-run</button>
+                    )}
+                  </div>
+                </div>
               ))}
             </div>
           </Panel>
         )}
         {contractSummary.length > 0 && (
           <Panel>
-            <div className="mb-3 text-sm font-bold">Contract change summary</div>
+            <div className="mb-1 text-sm font-bold">API contract changelog</div>
+            <p className="mb-3 text-xs text-slate-400">Aggregated field-level changes from this replay session.</p>
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
               {contractSummary.map((item) => (
                 <div key={item.type} className="rounded-md border border-[#3f473f] bg-[#151815] p-3 text-xs">
@@ -180,12 +274,74 @@ export function LiveReplayViewerPage() {
           }}
         />
       )}
+      {historyEndpoint && session.data && (
+        <EndpointHistoryModal
+          serviceId={session.data.serviceId}
+          endpoint={historyEndpoint}
+          onClose={() => setHistoryEndpoint(undefined)}
+        />
+      )}
     </>
   );
 }
 
+async function rerunEndpoint(
+  serviceId: string,
+  baselineId: string,
+  stagingUrl: string,
+  setError: (message: string) => void,
+  navigate: ReturnType<typeof useNavigate>,
+) {
+  setError('');
+  try {
+    const session = await triggerBaselineReplay({ serviceId, baselineId, stagingUrl });
+    navigate(`/replay/${session.id}`);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : 'Unable to re-run endpoint');
+  }
+}
+
+function EndpointHistoryModal({ serviceId, endpoint, onClose }: {
+  serviceId: string;
+  endpoint: { method: string; path: string };
+  onClose: () => void;
+}) {
+  const [points, setPoints] = useState<EndpointHistoryPoint[]>();
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    void getEndpointHistory(serviceId, endpoint.path)
+      .then(setPoints)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Unable to load endpoint history'));
+  }, [serviceId, endpoint.path]);
+
+  return (
+    <Modal title={`Endpoint history - ${endpoint.method} ${endpoint.path}`} onClose={onClose} size="lg">
+      <div className="space-y-3 text-xs">
+        <p className="text-slate-400">Drift outcome for this endpoint across replay sessions.</p>
+        {error && <ErrorBlock message={error} />}
+        {!points && !error && <LoadingBlock label="Loading endpoint history" />}
+        {points && points.length === 0 && <div className="rounded-xl border border-white/10 p-4 text-slate-400">No history yet.</div>}
+        {points && points.length > 0 && (
+          <div className="space-y-2">
+            {points.map((point) => (
+              <div key={point.sessionId + point.replayedAt} className="grid grid-cols-[1fr_110px_90px_90px] items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                <span className="truncate font-bold">{new Date(point.replayedAt).toLocaleString()}</span>
+                <DriftBadge type={point.driftType} />
+                <span>{point.triageStatus}</span>
+                <span className="text-right">{point.responseTimeMs} ms</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function ReleaseGateSimulator({ readiness }: { readiness: ReleaseReadiness }) {
-  const score = readinessScore(readiness);
+  const isFinal = readiness.status === 'DONE';
+  const score = isFinal ? readinessScore(readiness) : 0;
   const blocked = readiness.decision === 'BLOCKED';
   const ready = readiness.decision === 'READY';
   const Icon = blocked ? ShieldX : ready ? ShieldCheck : AlertTriangle;
@@ -212,7 +368,7 @@ function ReleaseGateSimulator({ readiness }: { readiness: ReleaseReadiness }) {
             </div>
           </div>
           <div className="min-w-40">
-            <div className="mb-1 flex justify-between text-[11px] font-bold"><span>Readiness score</span><span>{score}/100</span></div>
+            <div className="mb-1 flex justify-between text-[11px] font-bold"><span>Readiness score</span><span>{isFinal ? `${score}/100` : 'Calculating'}</span></div>
             <div className="h-2 rounded bg-[#111410]"><div className="h-2 rounded bg-current" style={{ width: `${score}%` }} /></div>
           </div>
         </div>
@@ -252,7 +408,7 @@ function SortHeader({ label, column, sort, onSort }: {
       className={`inline-flex items-center gap-1 rounded px-1 py-1 font-bold transition hover:bg-[#252b25] ${active ? 'text-cyan-200' : 'text-slate-300'}`}
     >
       {label}
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className="h-4 w-4" />
     </button>
   );
 }
@@ -277,7 +433,7 @@ function PromoteModal({ sessionId, decision, openCount, blockingCount, onClose, 
     setResult('');
     try {
       const promotion = await promoteReplaySession(sessionId, { force, promotedBy, note });
-      setResult(`Promoted ${promotion.promotedCount} replayed responses into new baselines.`);
+      setResult(`Accepted ${promotion.promotedCount} replayed responses as the new baseline.`);
       await onPromoted();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to promote baselines');
@@ -285,25 +441,26 @@ function PromoteModal({ sessionId, decision, openCount, blockingCount, onClose, 
   }
 
   return (
-    <Modal title="Promote replay to baseline" onClose={onClose} size="lg">
+    <Modal title="Accept staging as new baseline" onClose={onClose} size="lg">
       <form onSubmit={submit} className="space-y-4 text-xs">
         <div className="rounded-md border border-[#465047] bg-[#151815] p-3">
           <div className="font-bold">Current readiness: {decision}</div>
           <div className="mt-1 text-slate-300">{openCount} open drift items | {blockingCount} blocking items</div>
+          <div className="mt-2 text-slate-400">This means the reviewed staging responses become the expected baseline for future comparisons.</div>
         </div>
         <label className="block font-bold">
-          Promoted by
+          Accepted by
           <Input className="mt-1 w-full" value={promotedBy} onChange={(event) => setPromotedBy(event.target.value)} />
         </label>
         <label className="block font-bold">
-          Promotion note
+          Review note
           <Input className="mt-1 w-full" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Approved checkout response changes for release" />
         </label>
         <label className="flex items-center gap-2 font-bold">
           <input className="h-4 w-4 accent-cyan-400" type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} />
-          Force promotion even if drift remains open or blocking
+          Accept even if drift remains open or blocking
         </label>
-        <Button type="submit" className="border-cyan-400/60 bg-cyan-950/40">Promote baselines</Button>
+        <Button type="submit" className="border-cyan-400/60 bg-cyan-950/40">Accept as baseline</Button>
         {result && <p className="text-lime-300">{result}</p>}
         {error && <p className="text-red-300">{error}</p>}
       </form>
@@ -343,6 +500,16 @@ function Mini({ label, value }: { label: string; value: number }) {
 
 function Summary({ label, value }: { label: string; value: number }) {
   return <div className="rounded bg-[#242624] p-3 text-center"><div className="text-lg font-bold">{value}</div><div className="text-[10px] text-slate-300">{label}</div></div>;
+}
+
+function ImpactMetric({ label, value, detail, danger }: { label: string; value: number; detail: string; danger?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-3 ${danger ? 'border-rose-400/30 bg-rose-400/10' : 'border-white/10 bg-[#151815]'}`}>
+      <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{label}</div>
+      <div className={`mt-2 text-2xl font-black ${danger ? 'text-rose-100' : 'text-slate-50'}`}>{value}</div>
+      <div className="mt-1 text-[11px] text-slate-400">{detail}</div>
+    </div>
+  );
 }
 
 function count(results = [] as { driftType: DriftType }[], type: DriftType) {
@@ -430,6 +597,7 @@ function endpointRiskSummary(results: Awaited<ReturnType<typeof useReplayResults
     warning: number;
     performance: number;
     resultId?: string;
+    baselineId?: string;
   }>();
   for (const result of results) {
     const key = `${result.method} ${result.path}`;
@@ -441,6 +609,7 @@ function endpointRiskSummary(results: Awaited<ReturnType<typeof useReplayResults
       warning: 0,
       performance: 0,
       resultId: result.id,
+      baselineId: result.baselineId,
     };
     const methodWeight = result.method === 'POST' || result.method === 'PUT' || result.method === 'DELETE' ? 10 : 0;
     const driftWeight = result.driftType === 'BREAKING' ? 70 : result.driftType === 'WARNING' ? 35 : result.driftType === 'PERFORMANCE' ? 25 : 0;
@@ -450,6 +619,7 @@ function endpointRiskSummary(results: Awaited<ReturnType<typeof useReplayResults
     current.performance += result.driftType === 'PERFORMANCE' ? 1 : 0;
     if (!current.resultId || result.driftType === 'BREAKING') {
       current.resultId = result.id;
+      current.baselineId = result.baselineId;
     }
     byEndpoint.set(key, current);
   }
@@ -457,8 +627,8 @@ function endpointRiskSummary(results: Awaited<ReturnType<typeof useReplayResults
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((item) => {
-      const label = item.score >= 70 ? 'Critical' : item.score >= 35 ? 'Medium' : 'Low';
-      const tone = item.score >= 70 ? 'bg-red-100 text-red-700' : item.score >= 35 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800';
+      const label = item.score >= 110 ? 'Critical' : item.score >= 45 ? 'Medium' : 'Low';
+      const tone = item.score >= 110 ? 'bg-red-100 text-red-700' : item.score >= 45 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800';
       const reason = [
         item.breaking ? `${item.breaking} breaking` : '',
         item.warning ? `${item.warning} warning` : '',
@@ -494,4 +664,74 @@ function contractChangeSummary(results: Awaited<ReturnType<typeof useReplayResul
     }
   }
   return [...groups.values()].sort((a, b) => b.count - a.count);
+}
+
+function releaseImpactAnalysis(
+  results: Awaited<ReturnType<typeof useReplayResults>>['data'] = [],
+  readiness: ReleaseReadiness | undefined,
+) {
+  const totalEndpoints = new Set(results.map((result) => `${result.method} ${result.path}`)).size;
+  const affectedEndpoints = new Set(results
+    .filter((result) => result.driftType !== 'NONE')
+    .map((result) => `${result.method} ${result.path}`)).size;
+  const drifts = results.flatMap((result) => result.diffJson.drifts ?? []);
+  const contractBreaks = drifts.filter((drift) => ['STATUS_CHANGED', 'FIELD_REMOVED', 'TYPE_CHANGED'].includes(drift.type)).length;
+  const customerVisible = drifts.filter((drift) => drift.type === 'VALUE_CHANGED').length;
+  const latencyRegressions = drifts.filter((drift) => drift.type === 'LATENCY_REGRESSION').length;
+  const blocking = readiness?.decision === 'BLOCKED' || contractBreaks > 0;
+  const review = !blocking && (customerVisible > 0 || latencyRegressions > 0);
+  const decision = blocking ? 'Block release' : review ? 'Needs review' : 'Ready';
+  const recommendation = blocking
+    ? 'Do not promote this build. Fix contract-breaking response changes first, or explicitly accept the staging behavior as the new baseline after review.'
+    : review
+      ? 'Route this replay to an API owner. The contract is stable, but value or latency drift should be accepted or fixed before deploy.'
+      : 'No meaningful drift detected. This build can proceed through the release gate.';
+  return {
+    totalEndpoints,
+    affectedEndpoints,
+    contractBreaks,
+    customerVisible,
+    latencyRegressions,
+    blocking,
+    review,
+    decision,
+    recommendation,
+  };
+}
+
+function exportReplayReport(
+  sessionId: string,
+  session: Awaited<ReturnType<typeof useReplaySession>>['data'],
+  results: Awaited<ReturnType<typeof useReplayResults>>['data'] = [],
+  readiness: ReleaseReadiness | undefined,
+) {
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    session,
+    readiness,
+    summary: {
+      total: results.length,
+      breaking: count(results, 'BREAKING'),
+      warning: count(results, 'WARNING'),
+      performance: count(results, 'PERFORMANCE'),
+      none: count(results, 'NONE'),
+    },
+    contractChanges: contractChangeSummary(results),
+    results: results.map((result) => ({
+      id: result.id,
+      method: result.method,
+      path: result.path,
+      driftType: result.driftType,
+      triageStatus: result.triageStatus,
+      summary: result.driftSummary,
+      drifts: result.diffJson.drifts ?? [],
+    })),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `driftguard-replay-${sessionId}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
 }

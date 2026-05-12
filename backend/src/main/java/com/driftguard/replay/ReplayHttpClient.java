@@ -4,5 +4,5 @@ import com.driftguard.recorder.Baseline;
 
 public interface ReplayHttpClient {
 
-    ReplayedHttpResponse replay(String stagingUrl, Baseline baseline);
+    ReplayedHttpResponse replay(String stagingUrl, Baseline baseline, ReplayAuthConfig replayAuth);
 }

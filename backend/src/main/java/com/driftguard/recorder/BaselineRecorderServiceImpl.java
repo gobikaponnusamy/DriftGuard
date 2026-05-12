@@ -70,6 +70,30 @@ public class BaselineRecorderServiceImpl implements BaselineRecorderService {
 
     @Override
     @Transactional
+    public BaselineResponse update(UUID serviceId, UUID baselineId, RecordBaselineRequest request) {
+        Baseline baseline = findForService(serviceId, baselineId);
+        RedactedHttpExchange redacted = redactionRuleService.redactExchange(
+                serviceId,
+                request.requestHeaders(),
+                request.requestBody(),
+                request.responseHeaders(),
+                request.responseBody()
+        );
+        baseline.updateFrom(
+                request.method().trim().toUpperCase(Locale.ROOT),
+                request.path().trim(),
+                redacted.requestHeaders(),
+                redacted.requestBody(),
+                request.responseStatus(),
+                redacted.responseHeaders(),
+                redacted.responseBody(),
+                request.responseTimeMs()
+        );
+        return BaselineResponse.fromEntity(baselineRepository.saveAndFlush(baseline));
+    }
+
+    @Override
+    @Transactional
     public void delete(UUID serviceId, UUID baselineId) {
         baselineRepository.delete(findForService(serviceId, baselineId));
     }

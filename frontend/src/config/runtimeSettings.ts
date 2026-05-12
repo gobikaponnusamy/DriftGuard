@@ -32,3 +32,8 @@ export function setRuntimeSettings(settings: RuntimeSettings) {
   localStorage.setItem(FAIL_ON_ANY_DRIFT_KEY, String(settings.failOnAnyDrift));
   localStorage.setItem(MAX_WAIT_SECONDS_KEY, String(settings.maxWaitSeconds));
 }
+
+export function syntheticStagingUrl(serviceId: string) {
+  const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+  return `${apiBase}/synthetic-staging/${serviceId}`;
+}

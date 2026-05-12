@@ -15,7 +15,7 @@ const AUTH_STORAGE = 'driftguard_authenticated';
 interface AuthContextValue {
   isAuthenticated: boolean;
   apiKey: string;
-  login: (email: string, password: string, apiKey?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -30,14 +30,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const value = useMemo<AuthContextValue>(() => ({
     isAuthenticated,
     apiKey,
-    login: async (email, password, nextApiKey) => {
+    login: async (email, password) => {
       const session = await loginRequest({ email, password });
       localStorage.setItem(AUTH_STORAGE, 'true');
       setStoredAccessToken(session.accessToken);
-      if (nextApiKey?.trim()) {
-        setStoredApiKey(nextApiKey.trim());
-        setApiKey(nextApiKey.trim());
-      }
       setAuthenticated(true);
     },
     logout: () => {

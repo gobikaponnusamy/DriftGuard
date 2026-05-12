@@ -12,5 +12,7 @@ public interface BaselineRecorderService {
 
     BaselineResponse get(UUID serviceId, UUID baselineId);
 
+    BaselineResponse update(UUID serviceId, UUID baselineId, RecordBaselineRequest request);
+
     void delete(UUID serviceId, UUID baselineId);
 }

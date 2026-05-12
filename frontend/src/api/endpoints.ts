@@ -2,6 +2,7 @@ import { apiClient, unwrap } from './client';
 import type {
   Baseline,
   BaselinePromotion,
+  EndpointHistoryPoint,
   IgnoreRule,
   IgnoreRuleType,
   PageResponse,
@@ -14,6 +15,7 @@ import type {
   TimelinePoint,
   LoginResponse,
   ReleaseReadiness,
+  ReplayAuthType,
   TriageStatus,
 } from '../types/api';
 
@@ -25,8 +27,31 @@ export function listServices() {
   return unwrap<RegisteredService[]>(apiClient.get('/api/services'));
 }
 
-export function registerService(payload: { name: string; baseUrl: string }) {
+export function registerService(payload: {
+  name: string;
+  baseUrl: string;
+  replayAuthType?: ReplayAuthType;
+  replayAuthHeaderName?: string;
+  replayAuthValue?: string;
+}) {
   return unwrap<ServiceRegistration>(apiClient.post('/api/services', payload));
+}
+
+export function deleteService(serviceId: string) {
+  return unwrap<void>(apiClient.delete(`/api/services/${serviceId}`));
+}
+
+export function recordBaseline(serviceId: string, payload: {
+  method: string;
+  path: string;
+  requestHeaders?: Record<string, unknown>;
+  requestBody?: string;
+  responseStatus: number;
+  responseHeaders?: Record<string, unknown>;
+  responseBody?: string;
+  responseTimeMs: number;
+}) {
+  return unwrap<Baseline>(apiClient.post(`/api/record/${serviceId}`, payload));
 }
 
 export function listBaselines(serviceId: string, page = 0, size = 20) {
@@ -39,8 +64,25 @@ export function deleteBaseline(serviceId: string, baselineId: string) {
   return unwrap<void>(apiClient.delete(`/api/baselines/${serviceId}/${baselineId}`));
 }
 
+export function updateBaseline(serviceId: string, baselineId: string, payload: {
+  method: string;
+  path: string;
+  requestHeaders?: Record<string, unknown>;
+  requestBody?: string;
+  responseStatus: number;
+  responseHeaders?: Record<string, unknown>;
+  responseBody?: string;
+  responseTimeMs: number;
+}) {
+  return unwrap<Baseline>(apiClient.put(`/api/baselines/${serviceId}/${baselineId}`, payload));
+}
+
 export function triggerReplay(payload: { serviceId: string; stagingUrl: string }) {
   return unwrap<ReplaySession>(apiClient.post('/api/replay', payload));
+}
+
+export function triggerBaselineReplay(payload: { serviceId: string; baselineId: string; stagingUrl: string }) {
+  return unwrap<ReplaySession>(apiClient.post('/api/replay/baseline', payload));
 }
 
 export function getReplaySession(sessionId: string) {
@@ -104,6 +146,12 @@ export function getTimeline(serviceId: string) {
 
 export function getReadiness(serviceId: string) {
   return unwrap<ReleaseReadiness>(apiClient.get(`/api/reports/${serviceId}/readiness`));
+}
+
+export function getEndpointHistory(serviceId: string, path: string) {
+  return unwrap<EndpointHistoryPoint[]>(
+    apiClient.get(`/api/reports/${serviceId}/endpoint-history`, { params: { path } }),
+  );
 }
 
 export function runDemoCapture(serviceId: string) {

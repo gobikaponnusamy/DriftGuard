@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -52,6 +53,15 @@ public class BaselineController {
             @PathVariable UUID id
     ) {
         return ApiResponse.success(baselineRecorderService.get(serviceId, id));
+    }
+
+    @PutMapping("/api/baselines/{serviceId}/{id}")
+    public ApiResponse<BaselineResponse> update(
+            @PathVariable UUID serviceId,
+            @PathVariable UUID id,
+            @Valid @RequestBody RecordBaselineRequest request
+    ) {
+        return ApiResponse.success(baselineRecorderService.update(serviceId, id, request));
     }
 
     @DeleteMapping("/api/baselines/{serviceId}/{id}")

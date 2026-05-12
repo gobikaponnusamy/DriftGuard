@@ -48,6 +48,20 @@ public class ReplayServiceImpl implements ReplayService {
     }
 
     @Override
+    public ReplaySessionResponse triggerBaseline(TriggerBaselineReplayRequest request) {
+        validateHttpUrl(request.stagingUrl());
+        Baseline baseline = baselineRepository.findById(request.baselineId())
+                .orElseThrow(() -> new ResourceNotFoundException("Baseline not found: " + request.baselineId()));
+        if (!baseline.getService().getId().equals(request.serviceId())) {
+            throw new ResourceNotFoundException("Baseline not found for service: " + request.serviceId());
+        }
+        ReplaySessionResponse session = persistenceService.createSession(
+                request.serviceId(), request.stagingUrl().trim());
+        replayJobRunner.runFocused(session.id(), List.of(request.baselineId()));
+        return session;
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public ReplaySessionResponse getSession(UUID sessionId) {
         return ReplaySessionResponse.fromEntity(sessionRepository.findById(sessionId)

@@ -17,13 +17,16 @@ export function DiffViewerPage() {
   const { data: result, isLoading, error, reload } = useDiffResult(sessionId, resultId);
   const [triageNote, setTriageNote] = useState('');
   const [triageError, setTriageError] = useState('');
+  const [triageMessage, setTriageMessage] = useState('');
 
   async function triage(status: TriageStatus) {
     setTriageError('');
+    setTriageMessage('');
     try {
       await updateReplayResultTriage(sessionId, resultId, { status, note: triageNote });
       setTriageNote('');
       await reload();
+      setTriageMessage(`Marked as ${status}. Release readiness and replay counts update when you return to Live Replay.`);
     } catch (err) {
       setTriageError(err instanceof Error ? err.message : 'Unable to update triage');
     }
@@ -76,6 +79,7 @@ export function DiffViewerPage() {
                 </div>
               </div>
               {triageError && <p className="mt-2 text-xs text-red-300">{triageError}</p>}
+              {triageMessage && <p className="mt-2 rounded-md border border-lime-400/30 bg-lime-400/10 p-2 text-xs text-lime-100">{triageMessage}</p>}
             </Panel>
             <Panel>
               <div className="mb-2 grid grid-cols-2 text-xs font-bold"><span>Baseline production</span><span>Replayed staging</span></div>

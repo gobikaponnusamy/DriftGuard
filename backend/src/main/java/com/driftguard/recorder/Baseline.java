@@ -129,4 +129,24 @@ public class Baseline {
     public Instant getCapturedAt() {
         return capturedAt;
     }
+
+    public void updateFrom(
+            String method,
+            String path,
+            Map<String, Object> requestHeaders,
+            String requestBody,
+            int responseStatus,
+            Map<String, Object> responseHeaders,
+            String responseBody,
+            long responseTimeMs
+    ) {
+        this.method = method;
+        this.path = path;
+        this.requestHeaders = requestHeaders == null ? new LinkedHashMap<>() : requestHeaders;
+        this.requestBody = requestBody;
+        this.responseStatus = responseStatus;
+        this.responseHeaders = responseHeaders == null ? new LinkedHashMap<>() : responseHeaders;
+        this.responseBody = responseBody;
+        this.responseTimeMs = responseTimeMs;
+    }
 }

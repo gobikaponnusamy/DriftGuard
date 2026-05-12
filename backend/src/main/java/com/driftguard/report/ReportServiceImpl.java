@@ -88,6 +88,25 @@ public class ReportServiceImpl implements ReportService {
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<EndpointHistoryResponse> endpointHistory(UUID serviceId, String path) {
+        if (!serviceRepository.existsById(serviceId)) {
+            throw new ResourceNotFoundException("Service not found: " + serviceId);
+        }
+        return resultRepository
+                .findBySession_Service_IdAndBaseline_PathOrderBySession_TriggeredAtAsc(serviceId, path)
+                .stream()
+                .map(result -> new EndpointHistoryResponse(
+                        result.getSession().getId(),
+                        result.getReplayedAt(),
+                        result.getDriftType(),
+                        result.getTriageStatus().name(),
+                        result.getReplayedResponseTimeMs()
+                ))
+                .toList();
+    }
+
     private TimelinePointResponse toPoint(ReplaySession session) {
         List<ReplayResult> results = resultRepository.findBySession_Id(session.getId());
         return new TimelinePointResponse(

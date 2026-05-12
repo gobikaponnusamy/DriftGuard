@@ -1,41 +1,83 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Trash2 } from 'lucide-react';
-import { deleteBaseline, triggerReplay } from '../api/endpoints';
+import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Pencil, Trash2 } from 'lucide-react';
+import { deleteBaseline, triggerReplay, updateBaseline } from '../api/endpoints';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Button, Input } from '../components/forms';
 import { IconButton } from '../components/IconButton';
 import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 import { Panel } from '../components/Panel';
 import { EmptyBlock, ErrorBlock, LoadingBlock } from '../components/StateBlock';
-import { getRuntimeSettings } from '../config/runtimeSettings';
 import { useBaselines } from '../hooks/useBaselines';
+import { useServices } from '../hooks/useServices';
+import { syntheticStagingUrl } from '../config/runtimeSettings';
 import type { Baseline } from '../types/api';
 import { pretty, shortDate } from '../utils/format';
 
 export function BaselineBrowserPage() {
   const { serviceId = '' } = useParams();
+  const navigate = useNavigate();
+  const services = useServices();
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string>();
+  const [selected, setSelected] = useState<Baseline>();
+  const [editTarget, setEditTarget] = useState<Baseline>();
+  const [deleteTarget, setDeleteTarget] = useState<Baseline>();
+  const [search, setSearch] = useState('');
   const [replayOpen, setReplayOpen] = useState(false);
+  const [isDeleting, setDeleting] = useState(false);
   const [sort, setSort] = useState<BaselineSort>({ key: 'capturedAt', direction: 'desc' });
   const { data, isLoading, error, reload } = useBaselines(serviceId, page, 20);
-  const sortedBaselines = useMemo(
-    () => sortBaselines(data?.content ?? [], sort),
-    [data?.content, sort],
+  const selectedService = (services.data ?? []).find((service) => service.id === serviceId);
+  const visibleBaselines = useMemo(
+    () => sortBaselines(filterBaselines(data?.content ?? [], search), sort),
+    [data?.content, search, sort],
   );
 
-  async function remove(id: string) {
-    await deleteBaseline(serviceId, id);
-    await reload();
+  async function remove(baseline: Baseline) {
+    setDeleting(true);
+    try {
+      await deleteBaseline(serviceId, baseline.id);
+      setDeleteTarget(undefined);
+      await reload();
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
     <>
       <PageHeader title="Baselines" actions={<Button onClick={() => setReplayOpen(true)}>Replay all</Button>} />
       <div className="space-y-3 p-4">
+        <Panel>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-bold">Service baselines</div>
+              <div className="mt-1 text-xs text-slate-400">Generated staging URL: {serviceId ? syntheticStagingUrl(serviceId) : '-'}</div>
+            </div>
+            <select
+              className="h-9 rounded-md border border-[#59615b] bg-[#151815] px-3 text-xs font-semibold text-slate-100 outline-none"
+              value={serviceId}
+              onChange={(event) => {
+                setPage(0);
+                navigate(`/services/${event.target.value}/baselines`);
+              }}
+            >
+              {(services.data ?? []).map((service) => (
+                <option key={service.id} value={service.id}>{service.name}</option>
+              ))}
+            </select>
+          </div>
+        </Panel>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs font-bold">{data?.totalElements ?? 0} snapshots</div>
+          <div className="text-xs font-bold">{selectedService?.name ?? 'Service'} | {data?.totalElements ?? 0} snapshots</div>
+          <Input
+            className="w-full sm:w-80"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search method, path, status"
+          />
           {data && data.totalPages > 1 && (
             <Pagination
               page={page}
@@ -64,13 +106,15 @@ export function BaselineBrowserPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedBaselines.map((baseline) => (
+                {visibleBaselines.map((baseline) => (
                   <BaselineRow
                     key={baseline.id}
                     baseline={baseline}
                     expanded={expanded === baseline.id}
                     onToggle={() => setExpanded(expanded === baseline.id ? undefined : baseline.id)}
-                    onDelete={() => void remove(baseline.id)}
+                    onView={() => setSelected(baseline)}
+                    onEdit={() => setEditTarget(baseline)}
+                    onDelete={() => setDeleteTarget(baseline)}
                   />
                 ))}
               </tbody>
@@ -79,6 +123,18 @@ export function BaselineBrowserPage() {
         )}
       </div>
       {replayOpen && <ReplayAllModal serviceId={serviceId} onClose={() => setReplayOpen(false)} />}
+      {selected && <BaselineDetailModal baseline={selected} onClose={() => setSelected(undefined)} />}
+      {editTarget && <EditBaselineModal serviceId={serviceId} baseline={editTarget} onClose={() => setEditTarget(undefined)} onSaved={reload} />}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete baseline"
+          message={`This will permanently remove the captured ${deleteTarget.method} ${deleteTarget.path} production behavior snapshot. Future replay runs will no longer test this case.`}
+          confirmLabel="Delete baseline"
+          isWorking={isDeleting}
+          onCancel={() => setDeleteTarget(undefined)}
+          onConfirm={() => void remove(deleteTarget)}
+        />
+      )}
     </>
   );
 }
@@ -104,7 +160,7 @@ function SortHeader({ label, column, sort, onSort }: {
       className={`inline-flex items-center gap-1 rounded px-1 py-1 font-bold transition hover:bg-[#252b25] ${active ? 'text-cyan-200' : 'text-slate-300'}`}
     >
       {label}
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className="h-4 w-4" />
     </button>
   );
 }
@@ -121,12 +177,25 @@ function sortBaselines(items: Baseline[], sort: BaselineSort) {
   });
 }
 
+function filterBaselines(items: Baseline[], search: string) {
+  const query = search.trim().toLowerCase();
+  if (!query) {
+    return items;
+  }
+  return items.filter((baseline) => [
+    baseline.method,
+    baseline.path,
+    baseline.responseStatus,
+    baseline.responseTimeMs,
+  ].some((value) => String(value).toLowerCase().includes(query)));
+}
+
 function baselineSortValue(baseline: Baseline, key: BaselineSortKey) {
   return key === 'capturedAt' ? Date.parse(baseline.capturedAt) : baseline[key];
 }
 
-function BaselineRow({ baseline, expanded, onToggle, onDelete }: {
-  baseline: Baseline; expanded: boolean; onToggle: () => void; onDelete: () => void;
+function BaselineRow({ baseline, expanded, onToggle, onView, onEdit, onDelete }: {
+  baseline: Baseline; expanded: boolean; onToggle: () => void; onView: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   return (
     <>
@@ -137,8 +206,11 @@ function BaselineRow({ baseline, expanded, onToggle, onDelete }: {
         <td>{baseline.responseTimeMs} ms</td>
         <td>{shortDate(baseline.capturedAt)}</td>
         <td className="flex justify-end gap-2 py-2">
-          <IconButton label="View baseline" onClick={onToggle}>
+          <IconButton label="Open baseline detail" onClick={onView}>
             <Eye className="h-4 w-4" />
+          </IconButton>
+          <IconButton label="Edit API baseline" onClick={onEdit}>
+            <Pencil className="h-4 w-4" />
           </IconButton>
           <IconButton label="Delete baseline" onClick={onDelete}>
             <Trash2 className="h-4 w-4 text-red-300" />
@@ -156,6 +228,105 @@ function BaselineRow({ baseline, expanded, onToggle, onDelete }: {
         </tr>
       )}
     </>
+  );
+}
+
+function EditBaselineModal({ serviceId, baseline, onClose, onSaved }: {
+  serviceId: string;
+  baseline: Baseline;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [value, setValue] = useState(() => JSON.stringify({
+    method: baseline.method,
+    path: baseline.path,
+    requestHeaders: baseline.requestHeaders,
+    requestBody: baseline.requestBody,
+    responseStatus: baseline.responseStatus,
+    responseHeaders: baseline.responseHeaders,
+    responseBody: baseline.responseBody,
+    responseTimeMs: baseline.responseTimeMs,
+  }, null, 2));
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setError('');
+    setSaving(true);
+    try {
+      const parsed = JSON.parse(value) as Partial<Baseline>;
+      if (!parsed.method || !parsed.path || !parsed.responseStatus || parsed.responseTimeMs == null) {
+        throw new Error('method, path, responseStatus, and responseTimeMs are required.');
+      }
+      await updateBaseline(serviceId, baseline.id, {
+        method: parsed.method,
+        path: parsed.path,
+        requestHeaders: parsed.requestHeaders,
+        requestBody: parsed.requestBody,
+        responseStatus: parsed.responseStatus,
+        responseHeaders: parsed.responseHeaders,
+        responseBody: parsed.responseBody,
+        responseTimeMs: parsed.responseTimeMs,
+      });
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update API baseline');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={`Edit API baseline - ${baseline.method} ${baseline.path}`} onClose={onClose} size="lg">
+      <div className="space-y-3 text-xs">
+        <p className="text-slate-400">Update this API baseline. Future replays will compare staging against this edited behavior.</p>
+        <textarea
+          className="no-scrollbar min-h-80 w-full resize-none rounded-lg border border-white/10 bg-[#090a12] px-3 py-2 font-mono text-xs font-semibold text-slate-100 outline-none focus:border-fuchsia-300"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <Button onClick={() => void save()} disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</Button>
+        {error && <p className="text-red-300">{error}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+function BaselineDetailModal({ baseline, onClose }: { baseline: Baseline; onClose: () => void }) {
+  return (
+    <Modal title={`${baseline.method} ${baseline.path}`} onClose={onClose} size="xl">
+      <div className="space-y-3 text-xs">
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Detail label="Status" value={String(baseline.responseStatus)} />
+          <Detail label="Latency" value={`${baseline.responseTimeMs} ms`} />
+          <Detail label="Captured" value={shortDate(baseline.capturedAt)} />
+          <Detail label="Baseline ID" value={baseline.id.slice(0, 8)} />
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Code title="Production request" value={pretty({
+            method: baseline.method,
+            path: baseline.path,
+            headers: baseline.requestHeaders,
+            body: baseline.requestBody,
+          })} />
+          <Code title="Production response" value={pretty({
+            status: baseline.responseStatus,
+            headers: baseline.responseHeaders,
+            body: baseline.responseBody,
+          })} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 truncate font-bold text-slate-100">{value}</div>
+    </div>
   );
 }
 
@@ -216,9 +387,9 @@ function Code({ title, value }: { title: string; value: string }) {
 }
 
 function ReplayAllModal({ serviceId, onClose }: { serviceId: string; onClose: () => void }) {
-  const [stagingUrl, setStagingUrl] = useState(() => getRuntimeSettings().defaultStagingUrl);
-  const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [stagingUrl, setStagingUrl] = useState(() => syntheticStagingUrl(serviceId));
+  const [error, setError] = useState('');
 
   async function start() {
     try {

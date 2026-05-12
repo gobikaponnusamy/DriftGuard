@@ -51,7 +51,18 @@ public class ReplayPersistenceService {
                 .findByService_IdOrderByCapturedAtAsc(session.getService().getId());
         session.markRunning(baselines.size());
         return new ReplayWork(session.getId(), session.getService().getId(),
-                session.getStagingUrl(), baselines);
+                session.getStagingUrl(), replayAuth(session.getService()), baselines);
+    }
+
+    @Transactional
+    public ReplayWork start(UUID sessionId, List<UUID> baselineIds) {
+        ReplaySession session = findSession(sessionId);
+        List<Baseline> baselines = baselineRepository.findAllById(baselineIds).stream()
+                .filter(baseline -> baseline.getService().getId().equals(session.getService().getId()))
+                .toList();
+        session.markRunning(baselines.size());
+        return new ReplayWork(session.getId(), session.getService().getId(),
+                session.getStagingUrl(), replayAuth(session.getService()), baselines);
     }
 
     @Transactional
@@ -99,5 +110,16 @@ public class ReplayPersistenceService {
     private ReplaySession findSession(UUID sessionId) {
         return sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Replay session not found: " + sessionId));
+    }
+
+    private ReplayAuthConfig replayAuth(RegisteredService service) {
+        if (service.getReplayAuthType() == null) {
+            return ReplayAuthConfig.none();
+        }
+        return new ReplayAuthConfig(
+                service.getReplayAuthType(),
+                service.getReplayAuthHeaderName(),
+                service.getReplayAuthValue()
+        );
     }
 }

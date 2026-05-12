@@ -7,6 +7,8 @@ public interface ReplayService {
 
     ReplaySessionResponse trigger(TriggerReplayRequest request);
 
+    ReplaySessionResponse triggerBaseline(TriggerBaselineReplayRequest request);
+
     ReplaySessionResponse getSession(UUID sessionId);
 
     List<ReplayResultResponse> listResults(UUID sessionId);

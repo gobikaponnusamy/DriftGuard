@@ -8,6 +8,7 @@ public record ReplayWork(
         UUID sessionId,
         UUID serviceId,
         String stagingUrl,
+        ReplayAuthConfig replayAuth,
         List<Baseline> baselines
 ) {
 }

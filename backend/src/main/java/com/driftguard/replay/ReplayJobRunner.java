@@ -39,8 +39,19 @@ public class ReplayJobRunner {
 
     @Async
     public void run(UUID sessionId) {
+        runInternal(sessionId, null);
+    }
+
+    @Async
+    public void runFocused(UUID sessionId, List<UUID> baselineIds) {
+        runInternal(sessionId, baselineIds);
+    }
+
+    private void runInternal(UUID sessionId, List<UUID> baselineIds) {
         try {
-            ReplayWork work = persistenceService.start(sessionId);
+            ReplayWork work = baselineIds == null
+                    ? persistenceService.start(sessionId)
+                    : persistenceService.start(sessionId, baselineIds);
             int total = work.baselines().size();
             int progress = 0;
             int driftedCount = 0;
@@ -48,7 +59,7 @@ public class ReplayJobRunner {
             List<String> ignoredPaths = ignoreRuleService.fieldPathsForService(work.serviceId());
 
             for (Baseline baseline : work.baselines()) {
-                ReplayedHttpResponse replayed = replayHttpClient.replay(work.stagingUrl(), baseline);
+                ReplayedHttpResponse replayed = replayHttpClient.replay(work.stagingUrl(), baseline, work.replayAuth());
                 DiffEngineResult diff = diffEngine.compare(
                         baseline.getResponseStatus(),
                         baseline.getResponseBody(),

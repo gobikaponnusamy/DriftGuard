@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ReplayResultRepository extends JpaRepository<ReplayResult, UUID> {
 
     List<ReplayResult> findBySession_Id(UUID sessionId);
+
+    List<ReplayResult> findBySession_Service_IdAndBaseline_PathOrderBySession_TriggeredAtAsc(UUID serviceId, String path);
 }

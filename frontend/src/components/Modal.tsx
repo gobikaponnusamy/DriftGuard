@@ -14,13 +14,13 @@ const widths = {
 
 export function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm">
-      <div className={`flex max-h-[calc(100vh-2rem)] w-full ${widths[size]} flex-col overflow-hidden rounded-lg border border-[#4b534d] bg-[#20231f] shadow-2xl`}>
-        <div className="flex items-center justify-between border-b border-[#3e463f] px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-md">
+      <div className={`flex max-h-[calc(100vh-3rem)] w-full ${widths[size]} flex-col rounded-2xl border border-white/10 bg-[#0b0f16] p-1 shadow-[0_30px_90px_rgba(0,0,0,0.55)]`}>
+        <div className="flex shrink-0 items-center justify-between rounded-t-[0.85rem] border-b border-white/10 bg-white/[0.03] px-5 py-4">
           <h2 className="text-sm font-bold tracking-wide text-slate-100">{title}</h2>
-          <button onClick={onClose} className="rounded-md border border-[#59615b] px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-[#30362f]">Close</button>
+          <button onClick={onClose} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-200 hover:border-teal-300/70 hover:bg-white/[0.08]">Close</button>
         </div>
-        <div className="overflow-y-auto p-5">
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto rounded-b-[0.85rem] p-5 pb-7">
           {children}
         </div>
       </div>

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -24,5 +25,13 @@ public class ReportController {
     @GetMapping("/api/reports/{serviceId}/readiness")
     public ApiResponse<ReleaseReadinessResponse> readiness(@PathVariable UUID serviceId) {
         return ApiResponse.success(reportService.readiness(serviceId));
+    }
+
+    @GetMapping("/api/reports/{serviceId}/endpoint-history")
+    public ApiResponse<List<EndpointHistoryResponse>> endpointHistory(
+            @PathVariable UUID serviceId,
+            @RequestParam String path
+    ) {
+        return ApiResponse.success(reportService.endpointHistory(serviceId, path));
     }
 }

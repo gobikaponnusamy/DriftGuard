@@ -80,6 +80,12 @@ public class DemoDataSeeder implements CommandLineRunner {
 
         var existingService = serviceRepository.findByNameIgnoreCase("checkout-api");
         if (existingService.isPresent()) {
+            RegisteredService service = existingService.get();
+            if (baselineRepository.countByService_Id(service.getId()) == 0) {
+                List<Baseline> baselines = baselineRepository.saveAllAndFlush(demoBaselines(service));
+                seedReplaySession(service, baselines);
+                log.info("Restored DriftGuard checkout demo baselines for existing service");
+            }
             seedDefaultRedactionRules(existingService.get());
             return;
         }
@@ -90,7 +96,17 @@ public class DemoDataSeeder implements CommandLineRunner {
                 passwordEncoder.encode(DEMO_API_KEY)
         ));
 
-        List<Baseline> baselines = baselineRepository.saveAllAndFlush(List.of(
+        List<Baseline> baselines = baselineRepository.saveAllAndFlush(demoBaselines(service));
+
+        seedReplaySession(service, baselines);
+
+        ignoreRuleRepository.saveAndFlush(new IgnoreRule(service, "$.timestamp", IgnoreRuleType.IGNORE));
+        seedDefaultRedactionRules(service);
+        log.info("Seeded DriftGuard demo data. Demo API key: {}", DEMO_API_KEY);
+    }
+
+    private List<Baseline> demoBaselines(RegisteredService service) {
+        return List.of(
                 baseline(service, "GET", "/checkout/cart", 200, cart("cart_123", "99.0", "Classic Shirt"), 142),
                 baseline(service, "POST", "/checkout/order", 201, order("ord_1001", "confirmed"), 310),
                 baseline(service, "GET", "/checkout/price/101", 200, price("101", "49.0"), 88),
@@ -101,8 +117,10 @@ public class DemoDataSeeder implements CommandLineRunner {
                 baseline(service, "GET", "/checkout/cart/renamed", 200, cart("cart_456", "58.0", "Sneakers"), 96),
                 baseline(service, "POST", "/checkout/order/renamed", 201, order("ord_1002", "confirmed"), 277),
                 baseline(service, "GET", "/checkout/summary", 200, summary("cart_789", "149.0"), 130)
-        ));
+        );
+    }
 
+    private void seedReplaySession(RegisteredService service, List<Baseline> baselines) {
         ReplaySession session = sessionRepository.saveAndFlush(
                 new ReplaySession(service, "http://staging.checkout-api.local"));
         session.markRunning(baselines.size());
@@ -120,10 +138,6 @@ public class DemoDataSeeder implements CommandLineRunner {
                 result(session, baselines.get(8), 201, renamedOrder(), 289, DriftType.BREAKING),
                 result(session, baselines.get(9), 200, summary("cart_789", "149.0"), 2800, DriftType.PERFORMANCE)
         ));
-
-        ignoreRuleRepository.saveAndFlush(new IgnoreRule(service, "$.timestamp", IgnoreRuleType.IGNORE));
-        seedDefaultRedactionRules(service);
-        log.info("Seeded DriftGuard demo data. Demo API key: {}", DEMO_API_KEY);
     }
 
     private void seedDefaultRedactionRules(RegisteredService service) {

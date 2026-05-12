@@ -1,8 +1,11 @@
 package com.driftguard.replay;
 
 import com.driftguard.recorder.Baseline;
+import com.driftguard.service.ReplayAuthType;
 import java.net.URI;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -22,15 +25,18 @@ public class WebClientReplayHttpClient implements ReplayHttpClient {
     }
 
     @Override
-    public ReplayedHttpResponse replay(String stagingUrl, Baseline baseline) {
+    public ReplayedHttpResponse replay(String stagingUrl, Baseline baseline, ReplayAuthConfig replayAuth) {
         long started = System.nanoTime();
         try {
             HttpMethod method = HttpMethod.valueOf(baseline.getMethod().toUpperCase(Locale.ROOT));
             WebClient.RequestBodySpec spec = webClientBuilder.build()
                     .method(method)
                     .uri(targetUri(stagingUrl, baseline.getPath()))
-                    .headers(headers -> baseline.getRequestHeaders()
-                            .forEach((key, value) -> headers.set(key, String.valueOf(value))));
+                    .headers(headers -> {
+                        baseline.getRequestHeaders()
+                                .forEach((key, value) -> headers.set(key, String.valueOf(value)));
+                        applyReplayAuth(headers, replayAuth);
+                    });
 
             WebClient.RequestHeadersSpec<?> request = shouldSendBody(method, baseline.getRequestBody())
                     ? spec.bodyValue(baseline.getRequestBody())
@@ -59,6 +65,27 @@ public class WebClientReplayHttpClient implements ReplayHttpClient {
         String base = stagingUrl.endsWith("/") ? stagingUrl.substring(0, stagingUrl.length() - 1) : stagingUrl;
         String suffix = path.startsWith("/") ? path : "/" + path;
         return URI.create(base + suffix);
+    }
+
+    private void applyReplayAuth(org.springframework.http.HttpHeaders headers, ReplayAuthConfig replayAuth) {
+        if (replayAuth == null || replayAuth.type() == null || replayAuth.type() == ReplayAuthType.NONE
+                || replayAuth.value() == null || replayAuth.value().isBlank()) {
+            return;
+        }
+        switch (replayAuth.type()) {
+            case BEARER_TOKEN -> headers.setBearerAuth(replayAuth.value());
+            case API_KEY_HEADER, CUSTOM_HEADER -> headers.set(replayAuth.headerName(), replayAuth.value());
+            case BASIC_AUTH -> headers.setBasicAuth(encodedBasicAuth(replayAuth.value()));
+            case NONE -> {
+            }
+        }
+    }
+
+    private String encodedBasicAuth(String value) {
+        if (value.startsWith("Basic ")) {
+            return value.substring("Basic ".length());
+        }
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private boolean shouldSendBody(HttpMethod method, String body) {

@@ -8,4 +8,6 @@ public interface ReportService {
     List<TimelinePointResponse> timeline(UUID serviceId);
 
     ReleaseReadinessResponse readiness(UUID serviceId);
+
+    List<EndpointHistoryResponse> endpointHistory(UUID serviceId, String path);
 }
